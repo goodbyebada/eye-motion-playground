@@ -1,60 +1,77 @@
-import React, { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   DrawingUtils,
   FilesetResolver,
   FaceLandmarker,
-  FaceDetector,
 } from "@mediapipe/tasks-vision";
-import { FaceMesh } from "@mediapipe/face_mesh";
+import { getLeftIrisCenter } from "./utils/getLeftIrisCenter";
+import { drawBall, drawTwoEyes } from "./utils/draw";
+
+const RADIUS = 20;
 
 const App = () => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const faceLandmarkerRef = useRef<FaceLandmarker | null>(null);
-  const runningMode = "VIDEO";
   const lastVideoTimeRef = useRef(-1);
-  const webcamRunningRef = useRef(true);
+
+  // 이전 홍채 위치 저장
+  const centerLeftIris = useRef<{ x: number; y: number } | null>(null);
+  const hasCenterIrisRef = useRef<boolean>(false);
+  const [hasCenterIris, setHasCenterIris] = useState(false);
 
   const initFaceLandmarker = async () => {
-    // const vision = await FilesetResolver.forVisionTasks(
-    //   "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/wasm"
-    // );
-
-    // faceLandmarkerRef.current = await FaceLandmarker.createFromOptions(vision, {
-    //   baseOptions: {
-    //     modelAssetPath: `https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float32/1/face_landmarker.task`,
-    //     delegate: "GPU",
-    //   },
-    //   outputFaceBlendshapes: true,
-    //   runningMode: "VIDEO",
-    //   numFaces: 1,
-    // });
-
     const vision = await FilesetResolver.forVisionTasks(
-      // path/to/wasm/root
       "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm"
     );
     faceLandmarkerRef.current = await FaceLandmarker.createFromOptions(vision, {
       baseOptions: {
-        modelAssetPath: `https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task`,
+        modelAssetPath:
+          "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
         delegate: "GPU",
       },
       outputFaceBlendshapes: true,
-      runningMode,
+      runningMode: "VIDEO",
       numFaces: 1,
     });
   };
 
+  /**
+   * 화면 중앙에 있는 버튼 눌렀을 시,
+   * 사용자 왼쪽 눈동자 좌표 저장
+   */
+  const handleCenterIris = () => {
+    // 화면에서 iris 좌표를 검색하고 centerLeftIris에 저장
+    const video = videoRef.current!;
+    const nowInMs = performance.now();
+    const faceLandmarker = faceLandmarkerRef.current!;
+    const results = faceLandmarker.detectForVideo(video, nowInMs);
+
+    if (results.faceLandmarks.length > 0) {
+      const landmarks = results.faceLandmarks[0];
+      const { x, y } = getLeftIrisCenter(
+        landmarks,
+        FaceLandmarker.FACE_LANDMARKS_LEFT_IRIS
+      );
+      centerLeftIris.current = { x, y };
+      console.log("Iris Center Position:", centerLeftIris.current);
+      hasCenterIrisRef.current = true;
+      setHasCenterIris(true);
+    }
+  };
+
+  useEffect(() => {
+    // hasCenterIris 값이 변경될 때마다 실행
+    console.log("hasCenterIris 바뀌었음!");
+    console.log(hasCenterIrisRef.current);
+  }, [hasCenterIrisRef.current]); // hasCenterIris가 변경될 때마다 실행
+
   const predictWebcam = async () => {
     const video = videoRef.current!;
     const canvas = canvasRef.current!;
-    const canvasCtx = canvas.getContext("2d")!;
+    const canvasCtx = canvas?.getContext("2d")!;
     const faceLandmarker = faceLandmarkerRef.current!;
     const drawingUtils = new DrawingUtils(canvasCtx);
-
-    canvas.style.width = `${video.videoWidth}px`;
-    canvas.style.height = `${video.videoHeight}}px`;
-
     const nowInMs = performance.now();
 
     if (lastVideoTimeRef.current !== video.currentTime) {
@@ -63,99 +80,26 @@ const App = () => {
 
       canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
 
-      if (results.faceLandmarks) {
-        for (const landmarks of results.faceLandmarks) {
-          drawingUtils.drawConnectors(
+      if (results.faceLandmarks.length > 0) {
+        const landmarks = results.faceLandmarks[0];
+        drawTwoEyes(landmarks, drawingUtils);
+
+        if (hasCenterIrisRef.current) {
+          const { x, y } = getLeftIrisCenter(
             landmarks,
-            FaceLandmarker.FACE_LANDMARKS_TESSELATION,
-            { color: "#C0C0C070", lineWidth: 1 }
+            FaceLandmarker.FACE_LANDMARKS_RIGHT_IRIS
           );
-          drawingUtils.drawConnectors(
-            landmarks,
-            FaceLandmarker.FACE_LANDMARKS_RIGHT_EYE,
-            { color: "#FF3030" }
-          );
-          drawingUtils.drawConnectors(
-            landmarks,
-            FaceLandmarker.FACE_LANDMARKS_RIGHT_EYEBROW,
-            { color: "#FF3030" }
-          );
-          drawingUtils.drawConnectors(
-            landmarks,
-            FaceLandmarker.FACE_LANDMARKS_LEFT_EYE,
-            { color: "#30FF30" }
-          );
-          drawingUtils.drawConnectors(
-            landmarks,
-            FaceLandmarker.FACE_LANDMARKS_LEFT_EYEBROW,
-            { color: "#30FF30" }
-          );
-          drawingUtils.drawConnectors(
-            landmarks,
-            FaceLandmarker.FACE_LANDMARKS_FACE_OVAL,
-            { color: "#E0E0E0" }
-          );
-          drawingUtils.drawConnectors(
-            landmarks,
-            FaceLandmarker.FACE_LANDMARKS_LIPS,
-            { color: "#E0E0E0" }
-          );
-          drawingUtils.drawConnectors(
-            landmarks,
-            FaceLandmarker.FACE_LANDMARKS_RIGHT_IRIS,
-            { color: "#FF3030" }
-          );
-          drawingUtils.drawConnectors(
-            landmarks,
-            FaceLandmarker.FACE_LANDMARKS_LEFT_IRIS,
-            { color: "#30FF30" }
-          );
+          drawBall(x, y, centerLeftIris, canvas, RADIUS, canvasCtx);
         }
       }
-
-      drawBlendShapes(canvas, results.faceBlendshapes);
     }
 
-    if (webcamRunningRef.current) {
-      window.requestAnimationFrame(predictWebcam);
-    }
-  };
-
-  const drawBlendShapes = (
-    canvas: HTMLCanvasElement,
-    faceBlendshapes: Array<{
-      categories: Array<{ score: number; categoryName: string }>;
-    }>
-  ) => {
-    if (!canvas || !faceBlendshapes || faceBlendshapes.length === 0) return;
-
-    // const ctx = canvas.getContext("2d");
-    // if (!ctx) return;
-
-    // const barWidth = 150;
-    // const barHeight = 10;
-    // const startX = 10;
-    // let startY = 10;
-
-    // // 첫 번째 얼굴만 시각화
-    // const categories = faceBlendshapes[0].categories;
-
-    // categories.forEach(({ score, categoryName }) => {
-    //   ctx.fillStyle = "#000";
-    //   ctx.font = "12px sans-serif";
-    //   ctx.fillText(`${categoryName}: ${score.toFixed(2)}`, startX, startY + 8);
-
-    //   ctx.fillStyle = "#00BFFF";
-    //   ctx.fillRect(startX + 110, startY, barWidth * score, barHeight);
-
-    //   startY += 15;
-    // });
+    window.requestAnimationFrame(predictWebcam);
   };
 
   useEffect(() => {
     const start = async () => {
       await initFaceLandmarker();
-
       const stream = await navigator.mediaDevices.getUserMedia({ video: true });
       videoRef.current!.srcObject = stream;
       videoRef.current!.addEventListener("loadeddata", predictWebcam);
@@ -165,24 +109,28 @@ const App = () => {
   }, []);
 
   return (
-    <div>
+    <div id="wrapper">
+      {!hasCenterIris && (
+        <button style={{ zIndex: 100 }} onClick={handleCenterIris}>
+          화면 정중앙 버튼
+        </button>
+      )}
       <video
-        ref={videoRef}
         id="webcam"
-        width="640"
-        height="480"
+        ref={videoRef}
+        width={640}
+        height={480}
         autoPlay
         muted
         playsInline
-        style={{ display: "absolute", top: 0 }}
+        style={{ position: "absolute" }}
       />
-
       <canvas
         ref={canvasRef}
         id="output_canvas"
-        width="640"
-        height="480"
-        style={{ display: "absolute" }}
+        width={640}
+        height={480}
+        style={{ position: "absolute" }}
       />
     </div>
   );
